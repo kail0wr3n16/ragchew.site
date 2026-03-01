@@ -1663,6 +1663,17 @@ post '/api/user/add_device' do
   { ok: true }.to_json
 end
 
+post '/api/user/remove_device' do
+  content_type 'application/json'
+
+  require_user!
+
+  data = JSON.parse(request.body.read)
+  @user.devices.where(token: data['token']).limit(1).delete_all
+
+  { ok: true }.to_json
+end
+
 post '/api/monitor/:net_id' do
   content_type 'application/json'
 
