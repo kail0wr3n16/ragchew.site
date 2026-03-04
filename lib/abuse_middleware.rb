@@ -7,9 +7,14 @@ class Rack::AbuseMiddleware
     @limit = options[:limit] || 10
     @window = options[:window] || 30
     @block_time = options[:block_time] || 3600
+    @skip_if = options[:skip_if]
   end
 
   def call(env)
+    if @skip_if&.call(Rack::Request.new(env))
+      return @app.call(env)
+    end
+
     ip = (env['HTTP_X_FORWARDED_FOR'] || env['REMOTE_ADDR']).to_s.split(',').first
     key_404 = "abuse::ips:#{ip}:404s"
     key_blocked = "abuse::ips:#{ip}:blocked"

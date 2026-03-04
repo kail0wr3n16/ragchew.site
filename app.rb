@@ -10,8 +10,31 @@ require_relative './boot'
 disable :protection
 set :host_authorization, { permitted_hosts: [] }
 
+authenticated_request = lambda do |req|
+  begin
+    cookies = Rack::Utils.parse_cookies(req.env)
+    return true if cookies['rack.session']
+
+    auth_header = req.env['HTTP_AUTHORIZATION'].to_s
+    return false if auth_header.empty?
+
+    token_string = auth_header.sub(/\ABearer\s+/i, '').strip
+    return false if token_string.empty?
+
+    api_token = Tables::ApiToken.find_by_raw_token(token_string)
+    api_token && !api_token.expired?
+  rescue StandardError
+    false
+  end
+end
+
 use Rack::Attack
-use Rack::AbuseMiddleware, redis: REDIS, limit: 30, window: 120, block_time: 3600
+use Rack::AbuseMiddleware,
+    redis: REDIS,
+    limit: 30,
+    window: 120,
+    block_time: 3600,
+    skip_if: authenticated_request
 
 Rack::Attack.cache.store = ActiveSupport::Cache::RedisCacheStore.new(redis: REDIS)
 
@@ -20,8 +43,7 @@ Rack::Attack.cache.store = ActiveSupport::Cache::RedisCacheStore.new(redis: REDI
 # for the session cookie to determine if a user is likely logged in.
 Rack::Attack.throttle('req/ip', limit: 60, period: 60) do |req|
   unless req.path.start_with?('/images/', '/js/', '/station/') || req.path.end_with?('.css', '.js', '.png', '.ico')
-    cookies = Rack::Utils.parse_cookies(req.env)
-    req.ip unless cookies['rack.session']
+    req.ip unless authenticated_request.call(req)
   end
 end
 
