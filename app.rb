@@ -339,6 +339,11 @@ get '/about' do
   erb :about
 end
 
+get '/support' do
+  @page_title = 'Support'
+  erb :support
+end
+
 get '/privacy' do
   @page_title = 'Privacy Policy'
   erb :privacy
