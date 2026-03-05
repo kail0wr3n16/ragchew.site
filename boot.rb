@@ -2,7 +2,9 @@ require 'bundler/setup'
 
 require 'active_record'
 require 'erubi'
-require 'dotenv/load'
+unless ENV['RACK_ENV'] == 'test'
+  require 'dotenv/load'
+end
 require 'dotiw'
 require 'cgi'
 require 'erb'
@@ -21,7 +23,14 @@ require 'with_advisory_lock'
 
 template = eval(Erubi::Engine.new(File.read('config/database.yaml')).src)
 db_config = YAML.safe_load(template)
-env = ENV['RACK_ENV'] == 'production' ? :production : :development
+env = case ENV['RACK_ENV']
+      when 'production'
+        :production
+      when 'test'
+        :test
+      else
+        :development
+      end
 ActiveRecord::Base.establish_connection(db_config[env.to_s])
 ActiveRecord::Base.logger = Logger.new($stderr) if ENV['DEBUG_SQL']
 
@@ -42,4 +51,8 @@ require_relative './lib/update_club_list'
 
 CURRENT_GIT_SHA = ENV['GIT_REV'] || `git rev-parse HEAD`.strip
 
-REDIS = Redis.new(url: "#{ENV.fetch('REDIS_URL')}/1")
+redis_uri = URI(ENV.fetch('REDIS_URL'))
+if redis_uri.path.nil? || redis_uri.path.empty? || redis_uri.path == '/'
+  redis_uri.path = "/#{ENV.fetch('REDIS_DB', '1')}"
+end
+REDIS = Redis.new(url: redis_uri.to_s)

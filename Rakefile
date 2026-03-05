@@ -1,4 +1,9 @@
 require_relative './boot'
+begin
+  require 'rspec/core/rake_task'
+rescue LoadError
+  # RSpec may not be installed in some environments.
+end
 
 Dir['./lib/migrations/*.rb'].to_a.each do |file|
   require file
@@ -153,3 +158,5 @@ task :stats do
   puts "Building weekly stats for #{range.begin.strftime('%Y-%m-%d')} - #{range.end.strftime('%Y-%m-%d')}"
   build_stats(range, 'week', week_start)
 end
+
+RSpec::Core::RakeTask.new(:spec) if defined?(RSpec::Core::RakeTask)

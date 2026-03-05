@@ -27,3 +27,9 @@ gem 'with_advisory_lock'
 group :development do
   gem 'rubocop'
 end
+
+group :test do
+  gem 'rack-test'
+  gem 'rspec'
+  gem 'webmock'
+end

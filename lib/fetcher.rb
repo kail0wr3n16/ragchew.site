@@ -37,7 +37,7 @@ class Fetcher
   def raw_get(endpoint, params = {})
     params_string = params.map { |k, v| "#{k}=#{CGI.escapeURIComponent(v.to_s)}" }.join('&')
     uri = URI("https://#{@host}/cgi-bin/NetLogger/#{endpoint}?#{params_string}")
-    puts "GET #{uri}"
+    log "GET #{uri}"
 
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = uri.scheme == 'https'
@@ -54,20 +54,20 @@ class Fetcher
     # to debug the raw server HTML...
     # ENV['DEBUG_HTML'] = true
     # NetInfo.new(name: 'foo').send(:fetch_raw, force_full: true)
-    puts html if ENV['DEBUG_HTML']
+    log html if ENV['DEBUG_HTML']
 
     html
   end
 
   def post(endpoint, params)
     uri = URI("https://#{@host}/cgi-bin/NetLogger/#{endpoint}")
-    puts "POST #{uri} with params #{params.inspect}"
+    log "POST #{uri} with params #{params.inspect}"
 
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = uri.scheme == 'https'
 
     request = Net::HTTP::Post.new(uri.request_uri)
-    request.set_form(params)
+    request.set_form_data(params)
 
     request['user-agent'] = USER_AGENT
     response = http.request(request)
@@ -76,5 +76,19 @@ class Fetcher
     raise Error, $1 if response.body =~ /\*error - (.*?)\*/m
 
     response.body
+  end
+
+  private
+
+  def log(message)
+    return unless log_fetch?
+
+    puts message
+  end
+
+  def log_fetch?
+    return @log_fetch if instance_variable_defined?(:@log_fetch)
+
+    @log_fetch = %w[1 true yes on].include?(ENV['LOG_FETCH'].to_s.downcase)
   end
 end

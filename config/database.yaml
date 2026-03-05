@@ -1,5 +1,8 @@
 development:
   url: <%= ENV['DATABASE_URL'].to_s.sub(/^mysql:/, 'mysql2:') %>
 
+test:
+  url: <%= (ENV['TEST_DATABASE_URL'] || ENV['DATABASE_URL'].to_s.sub(/\/([^\/\?]+)(\?.*)?\z/, '/\1_test\2')).to_s.sub(/^mysql:/, 'mysql2:') %>
+
 production:
   url: <%= ENV['DATABASE_URL'].to_s.sub(/^mysql:/, 'mysql2:') %>
