@@ -1071,6 +1071,23 @@ get '/user' do
   erb :user
 end
 
+get '/user/delete' do
+  require_user!
+
+  @page_title = 'Delete Account'
+  erb :delete_user
+end
+
+post '/user/delete' do
+  require_user!
+
+  call_signs = @user.favorites.distinct.pluck(:call_sign)
+  @user.destroy!
+  session.clear
+
+  redirect '/'
+end
+
 get '/favorites' do
   require_user!
   set_favorites

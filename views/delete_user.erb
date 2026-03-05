@@ -1,0 +1,15 @@
+<h1>Delete Your Account</h1>
+
+<p class="danger"><strong>This action cannot be undone.</strong></p>
+
+<p>
+  Deleting your account will remove your user profile and related records, log you out, and return you to the home page.
+</p>
+
+<form action="/user/delete" method="post" onsubmit="if (!confirm('Delete your account permanently?')) return false">
+  <button type="submit">Yes, delete my account</button>
+</form>
+
+<p>
+  <a href="/user">Cancel</a>
+</p>
