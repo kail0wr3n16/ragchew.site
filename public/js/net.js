@@ -1067,6 +1067,10 @@ class CheckinRow extends Component {
   }
 
   renderRemarksAndNotes() {
+    if (!present(this.props.call_sign) && present(this.props.name)) {
+      this.props.remarks = `${this.props.name} ${this.props.remarks}`
+    }
+
     if (!present(this.props.remarks) && !present(this.props.notes)) return null
 
     return html`
@@ -2043,7 +2047,6 @@ class CreateNetForm extends Component {
           />
           RagChew-only net (testing)
         </label>`}
-
         ${!this.state.showAdvanced &&
         html`<p>
           <a
