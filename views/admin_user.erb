@@ -134,7 +134,7 @@ searchInput.addEventListener('input', function() {
   }
 
   searchTimeout = setTimeout(() => {
-    fetch(`/admin/clubs/search?q=${encodeURIComponent(query)}`)
+    fetch(`/api/admin/clubs/search?q=${encodeURIComponent(query)}`)
       .then(response => response.json())
       .then(clubs => {
         if (clubs.length === 0) {
