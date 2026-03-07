@@ -3,11 +3,6 @@ require_relative '../user_presenter'
 
 module Backend
   class LocalLogger
-  CHECKIN_ATTRIBUTE_KEYS = (
-    Tables::Checkin.column_names.map(&:to_sym) -
-    %i[id net_id created_at updated_at]
-  ).freeze
-
   def initialize(net_info, user: nil, require_logger_auth: false)
     @net_info = net_info
     if require_logger_auth && (!user || user.logging_net != @net_info.net)
@@ -130,7 +125,14 @@ module Backend
   private
 
   def checkin_attributes(entry)
-    entry.to_h.symbolize_keys.slice(*CHECKIN_ATTRIBUTE_KEYS)
+    entry.to_h.symbolize_keys.slice(*checkin_attribute_keys)
+  end
+
+  def checkin_attribute_keys
+    @checkin_attribute_keys ||= (
+      Tables::Checkin.column_names.map(&:to_sym) -
+      %i[id net_id created_at updated_at]
+    )
   end
   end
 end
