@@ -4,7 +4,7 @@ require 'spec_helper'
 require 'cgi'
 require 'uri'
 
-RSpec.describe 'NetLogger route regression flow' do
+RSpec.describe 'NetLogger' do
   let(:base_url) { 'https://www.netlogger.org/cgi-bin/NetLogger' }
 
   before do
@@ -26,7 +26,7 @@ RSpec.describe 'NetLogger route regression flow' do
     )
   end
 
-  it 'creates, logs, chats, blocks, and closes a net using explicit mocks' do
+  it 'creates, logs, chats, blocks, and closes a net' do
     user = create_user(call_sign: 'KI5ZDF', first_name: 'TIM R', last_name: 'MORGAN')
     headers = auth_headers_for(user)
 

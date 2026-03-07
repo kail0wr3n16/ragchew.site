@@ -4,7 +4,7 @@ require 'spec_helper'
 require 'cgi'
 require 'uri'
 
-RSpec.describe 'NetInfo regression parsing' do
+RSpec.describe 'NetInfo' do
   let(:base_url) { 'https://www.netlogger.org/cgi-bin/NetLogger' }
 
   before do

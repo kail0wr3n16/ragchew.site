@@ -1,8 +1,12 @@
+require 'json'
+require 'time'
+
 class Fetcher
   class Error < StandardError; end
   class NotFoundError < Error; end
 
   USER_AGENT = nil # must be removed or NetLogger servers will not respond properly :-(
+  LOG_FILE_ENV = 'FETCHER_LOG_FILE'
 
   def initialize(host)
     @host = host
@@ -46,10 +50,18 @@ class Fetcher
 
     request['user-agent'] = USER_AGENT
     response = http.request(request)
+    html = response.body.force_encoding('ISO-8859-1')
+
+    log_http(
+      method: 'GET',
+      endpoint:,
+      uri: uri.to_s,
+      request_params: params,
+      request_body: nil,
+      response:
+    )
 
     raise Error, response.body unless response.is_a?(Net::HTTPOK)
-
-    html = response.body.force_encoding('ISO-8859-1')
 
     # to debug the raw server HTML...
     # ENV['DEBUG_HTML'] = true
@@ -71,11 +83,47 @@ class Fetcher
 
     request['user-agent'] = USER_AGENT
     response = http.request(request)
+    response_body = response.body.force_encoding('ISO-8859-1')
+
+    log_http(
+      method: 'POST',
+      endpoint:,
+      uri: uri.to_s,
+      request_params: nil,
+      request_body: params,
+      response:
+    )
 
     raise Error, response.body unless response.is_a?(Net::HTTPOK)
     raise Error, $1 if response.body =~ /\*error - (.*?)\*/m
 
-    response.body
+    response_body
+  end
+
+  private
+
+  def log_http(method:, endpoint:, uri:, request_params:, request_body:, response:)
+    path = ENV[LOG_FILE_ENV].to_s.strip
+    return if path.empty?
+
+    response_body = response.body.to_s.force_encoding('ISO-8859-1')
+    event = {
+      timestamp: Time.now.utc.iso8601(3),
+      host: @host,
+      method:,
+      endpoint:,
+      uri:,
+      request_params: request_params,
+      request_body: request_body,
+      response_code: response.code.to_i,
+      response_class: response.class.name,
+      response_headers: response.to_hash,
+      response_body: response_body,
+    }
+
+    File.open(path, 'a') do |f|
+      f.puts(event.to_json)
+    end
   end
 
   private

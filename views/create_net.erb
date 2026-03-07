@@ -1,6 +1,6 @@
 <h1>Create a Net</h1>
 
-<% if !@user.net_logger? %>
+<% if !@user.net_logger? && !@user.admin? %>
 
   <p>
     It is possible to create a net with RagChew.site, but you need to be added to our private beta first.
@@ -18,6 +18,6 @@
     This screen is for someone who is a net control operator or a net logger. :-)
   </p>
 
-  <div data-component="CreateNet" data-props="<%= json_for_html_attribute({ net_control: @user.call_sign, clubs: @my_clubs.as_json }) %>"></div>
+  <div data-component="CreateNet" data-props="<%= json_for_html_attribute({ net_control: @user.call_sign, clubs: @my_clubs.as_json, isAdmin: @user.admin? }) %>"></div>
 
 <% end %>

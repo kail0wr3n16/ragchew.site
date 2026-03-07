@@ -28,7 +28,7 @@ group :development do
   gem 'rubocop'
 end
 
-group :test do
+group :development, :test do
   gem 'rack-test'
   gem 'rspec'
   gem 'webmock'

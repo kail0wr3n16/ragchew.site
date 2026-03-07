@@ -110,7 +110,9 @@ task :cleanup do
 
     last_activity = [net.checkins.maximum(:updated_at), net.messages.maximum(:created_at), net.created_at].compact.max
     if last_activity < MAX_IDLE_NET.ago
-      logger = NetLogger.new(NetInfo.new(id: net.id), user:)
+      net_info = NetInfo.new(id: net.id)
+      logger_class = Backend.for_net(net)
+      logger = logger_class.new(net_info, user:, require_logger_auth: true)
       logger.close_net! rescue nil
       count += 1
     end

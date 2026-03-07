@@ -1783,6 +1783,7 @@ class CreateNetForm extends Component {
     blockedStations: [],
     blockStationInput: "",
     showAdvanced: false,
+    ragchew_only_testing_net: false,
   }
 
   isCallSign(name) {
@@ -1846,6 +1847,7 @@ class CreateNetForm extends Component {
         mode: this.state.mode,
         net_control: this.state.net_control,
         blocked_stations: this.state.blockedStations,
+        ragchew_only_testing_net: this.state.ragchew_only_testing_net,
       }),
     })
       .then((response) => {
@@ -2029,6 +2031,19 @@ class CreateNetForm extends Component {
             maxlength="20"
           />
         </label>
+        ${this.props.isAdmin &&
+        html`<label>
+          <input
+            type="checkbox"
+            name="ragchew_only_testing_net"
+            checked=${this.state.ragchew_only_testing_net}
+            onchange=${(e) =>
+              this.setState({
+                ragchew_only_testing_net: e.target.checked,
+              })}
+          />
+          RagChew-only net (testing)
+        </label>`}
 
         ${!this.state.showAdvanced &&
         html`<p>

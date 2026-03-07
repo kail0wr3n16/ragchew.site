@@ -1,8 +1,6 @@
 require 'time'
 
-require_relative './fetcher'
 require_relative './tables'
-require_relative './user_presenter'
 
 class NetInfo
   EARTH_RADIUS_IN_KM = 6378.137
@@ -18,6 +16,27 @@ class NetInfo
 
   class NotFoundError < StandardError; end
   class ServerError < StandardError; end
+  class PasswordIncorrectError < StandardError; end
+  class NotAuthorizedError < StandardError; end
+  class CouldNotCloseError < StandardError; end
+  class CouldNotCreateError < StandardError; end
+  class CouldNotFindAfterCreationError < StandardError; end
+
+  def self.create!(ragchew_only_testing_net:, **kwargs)
+    Backend::Logger.create_net!(ragchew_only_testing_net:, **kwargs)
+  rescue Backend::Logger::CouldNotCreateNetError => error
+    raise CouldNotCreateError, error.message
+  rescue Backend::Logger::CouldNotFindNetAfterCreationError => error
+    raise CouldNotFindAfterCreationError, error.message
+  end
+
+  def self.start_logging!(id:, password:, user:)
+    service = new(id:)
+    Backend::Logger.start_logging(service, password:, user:)
+    service
+  rescue Backend::Logger::PasswordIncorrectError => error
+    raise PasswordIncorrectError, error.message
+  end
 
   def initialize(name: nil, id: nil)
     if id
@@ -32,6 +51,7 @@ class NetInfo
   end
 
   def net = @record
+  def id = @record.id
   def name = @record.name
   def host = @record.host
 
@@ -74,16 +94,8 @@ class NetInfo
     #IMSerial:          0
     #LastExtDataSerial: 0
 
-    fetcher = Fetcher.new(@record.host)
     begin
-      fetcher.get(
-        'SubscribeToNet.php',
-        'ProtocolVersion' => '2.3',
-        'NetName' => @record.name,
-        'Callsign' => name_for_monitoring(user),
-        'IMSerial' => '0',
-        'LastExtDataSerial' => '0',
-      )
+      backend_for_user(user).subscribe!(user:)
       user.update!(
         monitoring_net: @record,
         monitoring_net_last_refreshed_at: Time.now,
@@ -104,13 +116,8 @@ class NetInfo
     #Callsign: KI5ZDF-TIM MORGAN - v3.1.7L
     #NetName:  Daily Check in Net
 
-    fetcher = Fetcher.new(@record.host)
     begin
-      fetcher.get(
-        'UnsubscribeFromNet.php',
-        'Callsign' => name_for_monitoring(user),
-        'NetName' => @record.name,
-      )
+      backend_for_user(user).unsubscribe!(user:)
     rescue Fetcher::NotFoundError
       raise NotFoundError, 'Net gone'
     ensure
@@ -153,13 +160,7 @@ class NetInfo
       )
     end
 
-    fetcher = Fetcher.new(@record.host)
-    fetcher.post(
-      'SendInstantMessage.php',
-      'NetName' => @record.name,
-      'Callsign' => name_for_chat(user),
-      'Message' => message,
-    )
+    backend_for_user(user).send_message!(user:, message:)
   rescue Socket::ResolutionError, Net::OpenTimeout, Net::ReadTimeout
     raise ServerError, 'There was an error with the server. Please try again later.'
   end
@@ -200,15 +201,54 @@ class NetInfo
     end.join("\n")
   end
 
+  def update_log_entry!(num:, params:, user:)
+    backend_for_user(user, require_logger_auth: true).update!(num, params)
+  rescue Backend::Logger::NotAuthorizedError => error
+    raise NotAuthorizedError, error.message
+  end
+
+  def delete_log_entry!(num:, user:)
+    backend_for_user(user, require_logger_auth: true).delete!(num)
+  rescue Backend::Logger::NotAuthorizedError => error
+    raise NotAuthorizedError, error.message
+  end
+
+  def current_highlight_num(user:)
+    backend_for_user(user, require_logger_auth: true).current_highlight_num
+  rescue Backend::Logger::NotAuthorizedError => error
+    raise NotAuthorizedError, error.message
+  end
+
+  def highlight!(num:, user:)
+    backend_for_user(user, require_logger_auth: true).highlight!(num)
+  rescue Backend::Logger::NotAuthorizedError => error
+    raise NotAuthorizedError, error.message
+  end
+
+  def block_station!(call_sign:, user:)
+    backend_for_user(user, require_logger_auth: true).block_station(call_sign:)
+  rescue Backend::Logger::NotAuthorizedError => error
+    raise NotAuthorizedError, error.message
+  end
+
+  def close!(user:)
+    backend_for_user(user, require_logger_auth: true).close_net!
+  rescue Backend::Logger::NotAuthorizedError => error
+    raise NotAuthorizedError, error.message
+  rescue Backend::Logger::CouldNotCloseNetError => error
+    raise CouldNotCloseError, error.message
+  end
+
   private
 
   def update_cache(force_full: false)
     begin
-      data = fetch(force_full:)
+      data = backend_for_update.fetch_updates(force_full:)
     rescue Socket::ResolutionError, Net::OpenTimeout, Net::ReadTimeout, Errno::EHOSTUNREACH => error
       Honeybadger.notify(error, message: 'Rescued network/server error fetching data')
       return
     end
+    return unless data
 
     changes = update_checkins(data[:checkins], currently_operating: data[:currently_operating])
     changes += update_monitors(data[:monitors])
@@ -368,7 +408,7 @@ class NetInfo
         if @record.blocked_stations.where(call_sign: new_monitor.call_sign).any?
           # was blocked at the beginning, now we need to tell NetLogger
           if (user = net.logging_users.first)
-            logger = NetLogger.new(self, user:)
+            logger = Backend::Logger.new(self, user:, require_logger_auth: true)
             logger.block_station( call_sign: new_monitor.call_sign)
           end
         end
@@ -429,189 +469,12 @@ class NetInfo
     !@record.fully_updated_at || @record.fully_updated_at < Time.now - @record.update_interval_in_seconds
   end
 
-  def fetch(force_full: false)
-    data = fetch_raw(force_full:)
-
-    unless data['NetLogger Start Data']
-      Honeybadger.notify('No Start Data!', context: data)
-    end
-
-    checkins = data['NetLogger Start Data'].map do |num, call_sign, city, state, name, remarks, qsl_info, checked_in_at, county, grid_square, street, zip, status, _unknown, country, dxcc, preferred_name|
-      next if call_sign == 'future use 2'
-
-      (latitude, longitude) = GridSquare.new(grid_square).to_a
-
-      begin
-        checked_in_at = Time.parse(checked_in_at)
-      rescue ArgumentError, TypeError
-        # bad checkin?
-        nil
-      else
-        if call_sign.size > 2 && grid_square == ' '
-          # The NetLogger operator doesn't have a QRZ account,
-          # so we'll look up some info for them using ours.
-          begin
-            info = qrz.lookup(call_sign)
-          rescue Qrz::Error
-            # well we tried
-          else
-            grid_square = info[:grid_square]
-            name = [info[:first_name], info[:last_name]].compact.join(' ') unless name.present?
-            street = info[:street] unless street.present?
-            city = info[:city] unless city.present?
-            state = info[:state] unless state.present?
-            zip = info[:zip] unless zip.present?
-            county = info[:county] unless county.present?
-            country = info[:country] unless country.present?
-          end
-        end
-
-        {
-          num: num.to_i,
-          call_sign:,
-          city:,
-          state:,
-          name:,
-          remarks:,
-          qsl_info:,
-          checked_in_at:,
-          county:,
-          grid_square:,
-          street:,
-          zip:,
-          status:,
-          country:,
-          preferred_name:,
-          latitude:,
-          longitude:,
-        }
-      end
-    end.compact
-
-    last_record = data['NetLogger Start Data'].last
-    if last_record && last_record[0] =~ /^`(\d+)/
-      currently_operating = $1.to_i
-    end
-
-    monitors = data['NetMonitors Start'].each_with_index.map do |(call_sign_and_info, ip_address), index|
-      parts = call_sign_and_info.split(' - ')
-      call_sign, name = parts.first.split('-')
-      version = parts.grep(/v\d/).last
-      status = parts.grep(/(On|Off)line/).first || 'Online'
-      {
-        num: index,
-        call_sign:,
-        name:,
-        version:,
-        status:,
-        ip_address:,
-      }
-    end
-
-    # 2024-08-14 02:36:44|1|KI5ZDF-TIM MORGAN|1031631016|0|3138074|  # type 1 - NCO or Logger probably (not currently handled)
-    # 2024-08-14 02:38:22|3|1|3138076|                               # type 3 - block station with index 1
-    # 2024-08-14 02:41:34|3|2|3138079|                               # type 3 - block station with index 2
-    (data['Ext Data Start'] || []).each do |timestamp, type, index, _serial|
-      # I think type 1 means NCO or Logger or something.
-      # Type 3 means to block aka shadowban the station so their messages are hidden.
-      next unless type.to_i == 3
-      next unless (monitor = monitors[index.to_i])
-
-      monitor[:blocked] = true
-    end
-
-    messages = data['IM Start'].map do |log_id, call_sign_and_name, _always_one, message, sent_at, ip_address|
-      next if call_sign_and_name.nil?
-
-      call_sign, name = call_sign_and_name.split('-', 2).map(&:strip)
-      begin
-        sent_at = Time.parse(sent_at)
-      rescue ArgumentError, TypeError
-        # bad message?
-        nil
-      else
-        {
-          log_id: log_id.to_i,
-          call_sign:,
-          name:,
-          message:,
-          sent_at:,
-          ip_address:
-        }
-      end
-    end.compact
-
-    raw_info = (data['Net Info Start'].first || []).each_with_object({}) do |param, hash|
-      (key, value) = param.split('=')
-      hash[key.downcase] = value
-    end
-    info = {
-      started_at: raw_info['date'],
-      frequency: raw_info['frequency'],
-      net_logger: raw_info['logger'],
-      net_control: raw_info['netcontrol'],
-      mode: raw_info['mode'],
-      band: raw_info['band'],
-      im_enabled: raw_info['aim'] == 'Y',
-      update_interval: raw_info['updateinterval'],
-      alt_name: raw_info['altnetname'],
-    }
-    if (last_ext_data = (data['Ext Data Start'] || []).last)
-      info[:ext_data_serial] = last_ext_data.last.to_i
-    end
-
-    {
-      checkins:,
-      monitors:,
-      messages:,
-      info:,
-      currently_operating:
-    }
+  def backend_for_update
+    Backend::Logger.new(self)
   end
 
-  def fetch_raw(force_full: false)
-    unless force_full
-      log_last_updated_at = @record.checkins.maximum(:checked_in_at)
-      im_last_serial = @record.messages.maximum(:log_id)
-    end
-
-    fetcher = Fetcher.new(@record.host)
-    # LastExtDataSerial=570630
-
-    params = {
-      'ProtocolVersion' => '2.3',
-      'NetName' => @record.name
-    }
-
-    if (log_last_updated_at)
-      params.merge!(
-        'DeltaUpdateTime' => log_last_updated_at.strftime('%Y-%m-%d %H:%M:%S')
-      )
-    end
-
-    if (im_last_serial)
-      params.merge!(
-        'IMSerial' => im_last_serial
-      )
-    end
-
-    params.merge!('LastExtDataSerial' => @record.ext_data_serial)
-
-    begin
-      fetcher.get('GetUpdates3.php', params)
-    rescue Fetcher::NotFoundError
-      Tables::ClosedNet.from_net(@record).save!
-      @record.destroy
-      raise NotFoundError, 'Net is closed'
-    end
-  end
-
-  def name_for_monitoring(user)
-    UserPresenter.new(user).name_for_monitoring
-  end
-
-  def name_for_chat(user)
-    UserPresenter.new(user).name_for_chat
+  def backend_for_user(user, require_logger_auth: false)
+    Backend::Logger.new(self, user:, require_logger_auth:)
   end
 
   def median(ary)
@@ -642,10 +505,6 @@ class NetInfo
     c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
     d = EARTH_RADIUS_IN_KM * c
     d * 1000
-  end
-
-  def qrz
-    @qrz ||= QrzAutoSession.new
   end
 
   def with_lock

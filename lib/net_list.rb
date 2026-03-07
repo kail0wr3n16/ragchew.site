@@ -1,16 +1,19 @@
-require 'net/http'
 require 'time'
 
-require_relative './fetcher'
 require_relative './tables'
 
 class NetList
   CACHE_LENGTH_IN_SECONDS = 30
   SERVER_CACHE_LENGTH_IN_SECONDS = 3600
+  Error = Class.new(StandardError)
+  ServerError = Class.new(Error)
+  ParseError = Class.new(Error)
 
-  def list(order: :name)
+  def list(order: :name, include_testing: false)
     update_cache
-    Tables::Net.order(order).includes(:club).to_a
+    scope = Tables::Net.includes(:club).order(order)
+    scope = scope.where(ragchew_only_testing_net: false) unless include_testing
+    scope.to_a
   end
 
   def update_net_list_right_now_with_wreckless_disregard_for_the_last_update!
@@ -42,47 +45,24 @@ class NetList
   def update_server_cache
     return unless server_cache_needs_updating?
 
-    puts 'Updating server cache'
-
-    text = Net::HTTP.get(URI('https://www.netlogger.org/downloads/ServerList.txt'))
-
-    sections = text.scan(/\[(\w+)\]([^\[\]]*)/m).each_with_object({}) do |(header, data), hash|
-      hash[header] = data.strip.split(/\r?\n/)
-    end
-
     cached = Tables::Server.by_host
 
     # add new and update existing
-    sections['ServerList'].each do |line|
-      host = line.split(/\s*\|\s*/).first
-
-      info = Fetcher.new(host).get('GetServerInfo.pl')
-      details = info['Server Info Start'].first.each_with_object({}) do |line, hash|
-        key, value = line.split('=')
-        hash[key] = value
-      end
-
-      is_public = details['ServerState'] == 'Public'
-
-      begin
-        server_created_at = Time.parse(details['CreationDateUTC'])
-      rescue ArgumentError
-        server_created_at = nil
-      end
-
+    fetch_server_catalog.each do |server_info|
+      host = server_info.fetch(:host)
       record = cached.delete(host) || Tables::Server.new(host:)
       record.update!(
-        name: details['ServerName'],
-        state: details['ServerState'],
-        is_public:,
-        server_created_at:,
-        min_aim_interval: details['MinAIMInterval'],
-        default_aim_interval: details['DefaultAIMInterval'],
-        token_support: details['TokenSupport'].downcase == 'true',
-        delta_updates: details['DeltaUpdates'].downcase == 'true',
-        ext_data: details['ExtData'].downcase == 'true',
-        timestamp_utc_offset: details['NetLoggerTimeStampUTCOffset'],
-        club_info_list_url: details['ClubInfoListURL'],
+        name: server_info[:name],
+        state: server_info[:state],
+        is_public: server_info[:is_public],
+        server_created_at: server_info[:server_created_at],
+        min_aim_interval: server_info[:min_aim_interval],
+        default_aim_interval: server_info[:default_aim_interval],
+        token_support: server_info[:token_support],
+        delta_updates: server_info[:delta_updates],
+        ext_data: server_info[:ext_data],
+        timestamp_utc_offset: server_info[:timestamp_utc_offset],
+        club_info_list_url: server_info[:club_info_list_url],
         updated_at: Time.now,
       )
     end
@@ -100,7 +80,9 @@ class NetList
     return unless force || net_cache_needs_updating?
 
     data = fetch
-    cached = Tables::Net.all_by_name
+    cached = Tables::Net.where(ragchew_only_testing_net: false).each_with_object({}) do |net, hash|
+      hash[net.name] = net
+    end
 
     blocked_net_names = Tables::BlockedNet.pluck(:name)
     data.reject! do |net_info|
@@ -136,35 +118,22 @@ class NetList
   end
 
   def fetch
-    Tables::Server.is_public.flat_map do |server|
-      fetcher = Fetcher.new(server.host)
-      data = fetcher.get('GetNetsInProgress20.php', 'ProtocolVersion' => '2.3')['NetLogger Start Data']
-      data.map do |name, frequency, net_logger, net_control, started_at, mode, band, im_enabled, update_interval, alt_name, _blank, subscribers|
-        details = {
-          name:,
-          alt_name:,
-          frequency:,
-          mode:,
-          net_control:,
-          net_logger:,
-          band:,
-          started_at:,
-          im_enabled:,
-          update_interval:,
-          subscribers:,
-          server:,
-          host: server.host,
-        }
-        if started_at.present?
-          details
-        else
-          Honeybadger.notify(
-            'Skipping a net without a start time.', 
-            context: details
-          )
-          nil
-        end
-      end.compact
-    end
+    fetch_nets_in_progress
+  end
+
+  def fetch_server_catalog
+    Backend.remote.fetch_server_catalog!
+  rescue Socket::ResolutionError, Net::OpenTimeout, Net::ReadTimeout, Errno::EHOSTUNREACH => error
+    raise ServerError, error.message
+  rescue StandardError => error
+    raise ParseError, error.message
+  end
+
+  def fetch_nets_in_progress
+    Backend.remote.fetch_nets_in_progress(servers: Tables::Server.is_public)
+  rescue Socket::ResolutionError, Net::OpenTimeout, Net::ReadTimeout, Errno::EHOSTUNREACH => error
+    raise ServerError, error.message
+  rescue StandardError => error
+    raise ParseError, error.message
   end
 end

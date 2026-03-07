@@ -513,21 +513,26 @@ get '/create-net' do
 end
 
 post '/api/create-net' do
-  require_net_logger_role!
+  content_type 'application/json'
+  payload = params.merge(JSON.parse(request.body.read)).transform_keys(&:to_sym)
+  ragchew_only_testing_net = payload[:ragchew_only_testing_net] == true || payload[:ragchew_only_testing_net] == 'true'
+
+  if ragchew_only_testing_net && !is_admin?
+    status 401
+    return { error: 'not authorized' }.to_json
+  end
+
+  require_net_logger_role! unless ragchew_only_testing_net
 
   if @user.net_creation_blocked?
     status 403
-    content_type 'application/json'
     return { error: "Net creation is unavailable." }.to_json
   end
 
   check_if_already_started_a_net!(@user)
 
-  content_type 'application/json'
-  @params = params.merge(JSON.parse(request.body.read))
-
   missing = CREATE_NET_REQUIRED_PARAMS.keys.reject do |param|
-    params[param].present?
+    payload[param].present?
   end
 
   if missing.any?
@@ -536,8 +541,8 @@ post '/api/create-net' do
   end
 
   club = nil
-  if params[:club_id].present? && params[:club_id] != 'no_club'
-    club = Tables::Club.find(params[:club_id])
+  if payload[:club_id].present? && payload[:club_id] != 'no_club'
+    club = Tables::Club.find(payload[:club_id])
     unless club.club_members.where(user_id: @user.id).any?
       status 400
       return { error: 'You are not a member of this club.' }.to_json
@@ -547,7 +552,7 @@ post '/api/create-net' do
   CREATE_NET_REQUIRED_PARAMS.each do |param, requirements|
     next unless (length = requirements[:length])
 
-    if params[param].size > length
+    if payload[param].size > length
       status 400
       return { error: "#{param} is too long.", fields: [param] }.to_json
     end
@@ -556,32 +561,33 @@ post '/api/create-net' do
   CREATE_NET_REQUIRED_PARAMS.each do |param, requirements|
     next unless (format = requirements[:format])
 
-    if params[param] !~ format
+    if payload[param] !~ format
       status 400
       return { error: "#{param} contains characters not allowed.", fields: [param] }.to_json
     end
   end
 
-  if Tables::Net.where(name: params[:net_name]).exists?
+  if Tables::Net.where(name: payload[:net_name]).exists?
     status 400
     return { error: 'A net with this name is already in progress.', fields: [:net_name] }.to_json
   end
 
-  NetLogger.create_net!(
+  NetInfo.create!(
+    ragchew_only_testing_net:,
     club:,
-    name: params[:net_name],
-    password: params[:net_password],
-    frequency: params[:frequency],
-    net_control: params[:net_control],
+    name: payload[:net_name],
+    password: payload[:net_password],
+    frequency: payload[:frequency],
+    net_control: payload[:net_control],
     user: @user,
-    mode: params[:mode],
-    band: params[:band],
-    blocked_stations: params[:blocked_stations],
+    mode: payload[:mode],
+    band: payload[:band],
+    blocked_stations: payload[:blocked_stations],
   )
 
-  NetInfo.new(name: params[:net_name]).monitor!(user: @user)
+  NetInfo.new(name: payload[:net_name]).monitor!(user: @user)
 
-  redirect "/net/#{url_escape params[:net_name]}"
+  redirect "/net/#{url_escape payload[:net_name]}"
 end
 
 post '/start-logging/:id' do
@@ -591,25 +597,27 @@ post '/start-logging/:id' do
     halt 401, 'already logging a net'
   end
 
-  @net = Tables::Net.find(params[:id])
+  net_service = NetInfo.new(id: params[:id])
+  @net = net_service.net
   unless @user.can_log_for_club?(@net.club)
     halt 401, 'not authorized'
   end
 
-  net_info = NetInfo.new(id: @net.id)
-  NetLogger.start_logging(net_info, password: params[:net_password], user: @user)
-  redirect "/net/#{url_escape net_info.name}"
-rescue NetLogger::PasswordIncorrectError
+  net_service = NetInfo.start_logging!(id: @net.id, password: params[:net_password], user: @user)
+  redirect "/net/#{url_escape net_service.name}"
+rescue NetInfo::PasswordIncorrectError
   halt 401, 'incorrect password'
+rescue NetInfo::NotFoundError
+  halt 404, 'net not found'
 end
 
 post '/stop-logging/:id' do
   require_user!
 
   @user.update!(logging_net: nil, logging_password: nil)
-  @net = Tables::Net.find(params[:id])
-  redirect "/net/#{url_escape @net.name}"
-rescue ActiveRecord::RecordNotFound
+  net_service = NetInfo.new(id: params[:id])
+  redirect "/net/#{url_escape net_service.name}"
+rescue NetInfo::NotFoundError
   redirect '/'
 end
 
@@ -618,52 +626,52 @@ patch '/api/log/:id/:num' do
 
   @params = params.merge(JSON.parse(request.body.read))
 
-  logger = NetLogger.new(NetInfo.new(id: params[:id]), user: @user)
-  logger.update!(params.fetch(:num).to_i, params)
+  net_service = NetInfo.new(id: params[:id])
+  net_service.update_log_entry!(num: params.fetch(:num).to_i, params:, user: @user)
 
   content_type 'application/json'
   return { success: true }.to_json
-rescue NetLogger::NotAuthorizedError
+rescue NetInfo::NotAuthorizedError
   halt 401, 'not authorized'
 end
 
 delete '/api/log/:id/:num' do
   require_net_logger_role!
 
-  logger = NetLogger.new(NetInfo.new(id: params[:id]), user: @user)
-  logger.delete!(params.fetch(:num).to_i)
+  net_service = NetInfo.new(id: params[:id])
+  net_service.delete_log_entry!(num: params.fetch(:num).to_i, user: @user)
 
   content_type 'application/json'
   return { success: true }.to_json
-rescue NetLogger::NotAuthorizedError
+rescue NetInfo::NotAuthorizedError
   halt 401, 'not authorized'
 end
 
 patch '/api/highlight/:id/:num' do
   require_net_logger_role!
 
-  logger = NetLogger.new(NetInfo.new(id: params[:id]), user: @user)
+  net_service = NetInfo.new(id: params[:id])
   requested_num = params.fetch(:num).to_i
 
-  if logger.current_highlight_num == requested_num
+  if net_service.current_highlight_num(user: @user) == requested_num
     highlight_num = 0
   else
     highlight_num = requested_num
   end
 
-  logger.highlight!(highlight_num)
+  net_service.highlight!(num: highlight_num, user: @user)
 
   content_type 'application/json'
   return { success: true }.to_json
-rescue NetLogger::NotAuthorizedError
+rescue NetInfo::NotAuthorizedError
   halt 401, 'not authorized'
 end
 
 post '/close-net/:id' do
   require_net_logger_role!
 
-  logger = NetLogger.new(NetInfo.new(id: params[:id]), user: @user)
-  logger.close_net!
+  net_service = NetInfo.new(id: params[:id])
+  net_service.close!(user: @user)
 
   @user.update!(
     monitoring_net: nil,
@@ -673,9 +681,9 @@ post '/close-net/:id' do
   )
 
   redirect '/'
-rescue NetLogger::NotAuthorizedError
+rescue NetInfo::NotAuthorizedError
   halt 401, 'not authorized'
-rescue NetLogger::CouldNotCloseNetError => e
+rescue NetInfo::CouldNotCloseError => e
   halt 400, "there was an error closing this net: #{e.message}"
 end
 
@@ -1189,8 +1197,8 @@ end
 post '/api/net/:id/blocked-stations/:call_sign' do
   require_net_logger_role!
 
-  logger = NetLogger.new(NetInfo.new(id: params[:id]), user: @user)
-  logger.block_station(call_sign: params[:call_sign])
+  net_service = NetInfo.new(id: params[:id])
+  net_service.block_station!(call_sign: params[:call_sign], user: @user)
 
   content_type 'application/json'
   { blocked: true }.to_json

@@ -15,12 +15,6 @@ module Tables
 
     after_create :send_notifications
 
-    def self.all_by_name
-      all.each_with_object({}) do |net, hash|
-        hash[net.name] = net
-      end
-    end
-
     def update_interval_in_seconds
       if update_interval
         update_interval / 1000
