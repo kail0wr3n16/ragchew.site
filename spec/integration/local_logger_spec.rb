@@ -78,4 +78,46 @@ RSpec.describe 'LocalLogger' do
     expect(Tables::ClosedNet.where(name: 'Local Testing Net')).to exist
     expect(WebMock).not_to have_requested(:any, %r{netlogger\.org|/cgi-bin/NetLogger/})
   end
+
+  it 'tracks monitor records for a local testing net' do
+    admin = create_user(call_sign: 'KI5ZDF', first_name: 'TIM R', last_name: 'MORGAN')
+    admin.admin = true
+    admin.save!
+    admin_headers = auth_headers_for(admin)
+
+    post '/api/create-net', {
+      club_id: 'no_club',
+      net_name: 'Local Monitor Net',
+      net_password: 'ecg',
+      frequency: '146.52',
+      band: '2m',
+      mode: 'FM',
+      net_control: 'KI5ZDF',
+      ragchew_only_testing_net: true,
+      blocked_stations: []
+    }.to_json, admin_headers.merge('CONTENT_TYPE' => 'application/json')
+
+    expect(last_response.status).to eq(302)
+
+    net = Tables::Net.find_by!(name: 'Local Monitor Net')
+    user = create_user(call_sign: 'KI5ABC', first_name: 'TEST', last_name: 'USER')
+    headers = auth_headers_for(user)
+
+    post "/api/monitor/#{net.id}", {}, headers
+
+    expect(last_response.status).to eq(200)
+
+    monitor = net.monitors.find_by(call_sign: 'KI5ABC')
+
+    expect(monitor).not_to be_nil
+    expect(monitor.name).to eq('TEST')
+    expect(monitor.version).to eq(UserPresenter::NET_LOGGER_FAKE_VERSION)
+    expect(user.reload.monitoring_net_id).to eq(net.id)
+
+    post "/api/unmonitor/#{net.id}", {}, headers
+
+    expect(last_response.status).to eq(200)
+    expect(net.reload.monitors.find_by(call_sign: 'KI5ABC')).to be_nil
+    expect(user.reload.monitoring_net_id).to be_nil
+  end
 end
