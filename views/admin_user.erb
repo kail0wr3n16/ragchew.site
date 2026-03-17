@@ -70,6 +70,10 @@
     Admin
   </label>
   <label>
+    <input type="checkbox" name="test_user" value="true" <%= @user_to_edit.test_user? ? 'checked' : '' %>/>
+    Test user
+  </label>
+  <label>
     <input type="checkbox" name="net_creation_blocked" value="true" <%= @user_to_edit.net_creation_blocked? ? 'checked' : '' %>/>
     Block net creation
   </label>

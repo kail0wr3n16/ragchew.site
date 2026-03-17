@@ -1455,6 +1455,7 @@ post '/admin/users/:id' do
   @user_to_edit.admin = params[:admin] == 'true'
   @user_to_edit.net_logger = params[:net_logger] == 'true'
   @user_to_edit.net_creation_blocked = params[:net_creation_blocked] == 'true'
+  @user_to_edit.test_user = params[:test_user] == 'true'
   @user_to_edit.save!
 
   redirect "/admin/users/#{params[:id]}"
