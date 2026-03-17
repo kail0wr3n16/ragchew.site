@@ -1,10 +1,8 @@
 require 'bundler/setup'
 
 require 'active_record'
+require 'dotenv'
 require 'erubi'
-unless ENV['RACK_ENV'] == 'test'
-  require 'dotenv/load'
-end
 require 'dotiw'
 require 'cgi'
 require 'erb'
@@ -20,6 +18,11 @@ require 'time'
 require 'uri'
 require 'yaml'
 require 'with_advisory_lock'
+
+dotenv_env = ENV['RACK_ENV'] || 'development'
+dotenv_files = [".env.#{dotenv_env}"]
+dotenv_files << '.env'
+Dotenv.load(*dotenv_files)
 
 template = eval(Erubi::Engine.new(File.read('config/database.yaml')).src)
 db_config = YAML.safe_load(template)
