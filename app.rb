@@ -1822,6 +1822,86 @@ post '/api/user/remove_device' do
   { ok: true }.to_json
 end
 
+patch '/api/user/device_preferences' do
+  content_type 'application/json'
+
+  require_user!
+
+  begin
+    data = JSON.parse(request.body.read)
+  rescue JSON::ParserError
+    status 400
+    return { error: 'invalid JSON' }.to_json
+  end
+
+  token = data['token'].to_s
+  if token.empty?
+    status 400
+    return { error: 'token is required' }.to_json
+  end
+
+  device = @user.devices.find_by(token:)
+  unless device
+    status 404
+    return { error: 'device not found' }.to_json
+  end
+
+  attributes = {}
+
+  if data.key?('awake_hours')
+    awake_hours = data['awake_hours']
+    if awake_hours.nil?
+      attributes[:awake_start_utc_minute] = nil
+      attributes[:awake_end_utc_minute] = nil
+    elsif awake_hours.is_a?(Hash)
+      start_utc = awake_hours['start_utc']
+      end_utc = awake_hours['end_utc']
+
+      if start_utc.nil? || end_utc.nil?
+        status 400
+        return { error: 'awake_hours must include start_utc and end_utc' }.to_json
+      end
+
+      start_minute = Tables::Device.parse_utc_time(start_utc)
+      end_minute = Tables::Device.parse_utc_time(end_utc)
+      unless start_minute && end_minute
+        status 400
+        return { error: 'awake hours must use HH:MM format in UTC' }.to_json
+      end
+
+      attributes[:awake_start_utc_minute] = start_minute
+      attributes[:awake_end_utc_minute] = end_minute
+    else
+      status 400
+      return { error: 'awake_hours must be an object or null' }.to_json
+    end
+  end
+
+  {
+    'favorite_station_notifications' => :favorite_station_notifications,
+    'favorite_net_notifications' => :favorite_net_notifications
+  }.each do |key, attribute|
+    next unless data.key?(key)
+
+    value = data[key]
+    unless value == true || value == false
+      status 400
+      return { error: "#{key} must be true or false" }.to_json
+    end
+
+    attributes[attribute] = value
+  end
+
+  begin
+    device.update!(attributes)
+  rescue ActiveRecord::RecordInvalid => e
+    status 400
+    return { error: e.record.errors.full_messages.first }.to_json
+  end
+
+  { ok: true, preferences: device.notification_preferences_as_json }.to_json
+end
+
 post '/api/monitor/:net_id' do
   content_type 'application/json'
 

@@ -28,6 +28,8 @@ module Tables
     def send_notifications
       Tables::FavoriteNet.where(net_name: name).includes(user: :devices).find_each do |fave|
         fave.user.devices.each do |device|
+          next unless device.should_send_notification?(:favorite_net)
+
           suffix = name.match?(/\bnet\z/i) ? " is starting!" : " net is starting!"
           device.send_push_notification(body: "#{name}#{suffix}", data: { netName: name })
         end

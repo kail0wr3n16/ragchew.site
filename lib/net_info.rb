@@ -373,6 +373,8 @@ class NetInfo
                         .find_each do |fave|
           call_sign = call_sign_map[fave.call_sign]
           fave.user.devices.each do |device|
+            next unless device.should_send_notification?(:favorite_station)
+
             device.send_push_notification(
               body: "#{call_sign} checked into #{@record.name}",
               data: { callSign: call_sign, netName: @record.name }
