@@ -10,7 +10,7 @@ module Tables
     bit_flag :test_user, 3
 
     def net_logger?
-      true
+      !test_user?
     end
     validates :call_sign, presence: true
 

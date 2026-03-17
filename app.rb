@@ -1832,6 +1832,9 @@ post '/api/monitor/:net_id' do
   @net_info.monitor!(user: @user)
 
   { ok: true }.to_json
+rescue NetInfo::NotAuthorizedError
+  status 401
+  { error: 'not authorized' }.to_json
 rescue NetInfo::NotFoundError
   status 404
   { error: true }.to_json
@@ -1853,6 +1856,9 @@ post '/api/unmonitor/:net_id' do
   @net = @net_info.net
 
   { ok: true }.to_json
+rescue NetInfo::NotAuthorizedError
+  status 401
+  { error: 'not authorized' }.to_json
 rescue NetInfo::NotFoundError
   status 404
   { error: true }.to_json
@@ -1888,6 +1894,9 @@ post '/api/message/:net_id' do
 
   status 201
   { status: 'sent' }.to_json
+rescue NetInfo::NotAuthorizedError => e
+  status 401
+  { error: e.message }.to_json
 rescue NetInfo::ServerError => e
   status 500
   { error: e.message }.to_json

@@ -100,6 +100,8 @@ class NetInfo
         monitoring_net: @record,
         monitoring_net_last_refreshed_at: Time.now,
       )
+    rescue Backend::Logger::NotAuthorizedError => error
+      raise NotAuthorizedError, error.message
     rescue Fetcher::NotFoundError
       raise NotFoundError, 'Net gone'
     end
@@ -118,6 +120,8 @@ class NetInfo
 
     begin
       backend_for_user(user).unsubscribe!(user:)
+    rescue Backend::Logger::NotAuthorizedError => error
+      raise NotAuthorizedError, error.message
     rescue Fetcher::NotFoundError
       raise NotFoundError, 'Net gone'
     ensure
@@ -142,6 +146,8 @@ class NetInfo
     #IsNetControl: X
     #Message:      hello just testing https://ragchew.site
 
+    raise NotAuthorizedError, 'Test users cannot mutate NetLogger servers.' if user.test_user? && !@record.ragchew_only_testing_net?
+
     with_lock do
       blocked_stations = (@record.monitors.blocked.pluck(:call_sign).map(&:upcase) + @record.blocked_stations.pluck(:call_sign).map(&:upcase)).uniq
       blocked = blocked_stations.include?(user.call_sign.upcase)
@@ -161,6 +167,8 @@ class NetInfo
     end
 
     backend_for_user(user).send_message!(user:, message:)
+  rescue Backend::Logger::NotAuthorizedError => error
+    raise NotAuthorizedError, error.message
   rescue Socket::ResolutionError, Net::OpenTimeout, Net::ReadTimeout
     raise ServerError, 'There was an error with the server. Please try again later.'
   end

@@ -28,6 +28,7 @@ module Backend
   attr_reader :net_info, :password, :fetcher, :user
 
   def subscribe!(user:)
+    ensure_user_can_mutate!(user)
     fetcher.get(
       'SubscribeToNet.php',
       'ProtocolVersion' => '2.3',
@@ -39,6 +40,7 @@ module Backend
   end
 
   def unsubscribe!(user:)
+    ensure_user_can_mutate!(user)
     fetcher.get(
       'UnsubscribeFromNet.php',
       'Callsign' => name_for_monitoring(user),
@@ -47,6 +49,7 @@ module Backend
   end
 
   def send_message!(user:, message:)
+    ensure_user_can_mutate!(user)
     fetcher.post(
       'SendInstantMessage.php',
       'NetName' => net_info.net.name,
@@ -112,6 +115,7 @@ module Backend
   end
 
   def self.create_net!(club:, name:, password:, frequency:, net_control:, user:, mode:, band:, enable_messaging: true, update_interval: 20000, misc_net_parameters: nil, host: 'www.netlogger.org', blocked_stations: [])
+    ensure_user_can_mutate!(user)
     fetcher = Fetcher.new(host)
     result = fetcher.raw_get(
       'OpenNet20.php',
@@ -153,6 +157,7 @@ module Backend
   end
 
   def block_station(call_sign:)
+    ensure_user_can_mutate!(user)
     call_sign = call_sign.strip.upcase
     net_info.net.blocked_stations.find_or_create_by(call_sign:)
     if (num = net_info.net.monitors.find_by(call_sign:)&.num)
@@ -170,6 +175,7 @@ module Backend
   end
 
   def self.start_logging(net_info, password:, user:)
+    ensure_user_can_mutate!(user)
     fetcher = Fetcher.new(net_info.host)
     result = fetcher.raw_get(
       'CheckToken.php',
@@ -249,6 +255,7 @@ module Backend
   end
 
   def close_net!
+    ensure_user_can_mutate!(user)
     fetcher = Fetcher.new(net_info.host)
     result = fetcher.raw_get(
       'CloseNet.php',
@@ -395,6 +402,16 @@ module Backend
 
   private
 
+  def ensure_user_can_mutate!(candidate = user)
+    self.class.ensure_user_can_mutate!(candidate)
+  end
+
+  def self.ensure_user_can_mutate!(user)
+    if user&.test_user?
+      raise NotAuthorizedError, 'Test users cannot mutate NetLogger servers.'
+    end
+  end
+
   def fetch_updates_raw(force_full: false)
     unless force_full
       log_last_updated_at = net_info.net.checkins.maximum(:checked_in_at)
@@ -431,6 +448,7 @@ module Backend
   end
 
   def send_update!(entries, highlight_num: current_highlight_num)
+    ensure_user_can_mutate!
     lines = entries.map do |entry|
       mode = entry.fetch(:mode)
       raise 'mode must be A or U' unless %w[A U].include?(mode)
