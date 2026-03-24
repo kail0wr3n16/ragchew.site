@@ -224,6 +224,10 @@ helpers do
     "<link rel=\"stylesheet\" href=\"/#{filename}?_ts=#{ts}\"/>"
   end
 
+  def canonical_name_order_sql(table_name)
+    Arel.sql("LOWER(COALESCE(canonical_nets.canonical_name, #{table_name}.name))")
+  end
+
   def pusher_url
     @pusher_url ||= URI.parse(ENV.fetch('PUSHER_URL'))
   end
@@ -330,7 +334,7 @@ get '/' do
   band_order_cast = Arel.sql("CAST(REPLACE(REPLACE(band, '70cm', '0'), 'm', '') AS UNSIGNED)")
   order = case params[:order]
           when 'name', nil
-            { name: :asc }
+            { canonical_name_order_sql('nets') => :asc }
           when 'frequency'
             { frequency_order_cast => :asc }
           when 'mode,frequency'
@@ -357,7 +361,7 @@ end
 get '/api/nets' do
   content_type 'application/json'
   service = NetList.new
-  nets = service.list(order: :name)
+  nets = service.list(order: { canonical_name_order_sql('nets') => :asc })
   centers = net_centers(nets)
   {
     nets:,
@@ -780,7 +784,7 @@ end
 get '/closed-nets' do
   params[:days] ||= '1'
 
-  scope = Tables::ClosedNet.all
+  scope = Tables::ClosedNet.left_outer_joins(:canonical_net).includes(:canonical_net)
   if params[:days] != 'all'
     start = params[:days].to_i.days.ago
     if start > Time.new(2000, 1, 1, 0, 0)
@@ -791,9 +795,11 @@ get '/closed-nets' do
   sort_name, sort_direction = params[:sort].to_s.split(' ', 2)
   sort_name = 'name' unless %w[name frequency band mode started_at].include?(sort_name)
   sort_direction = 'asc' unless %w[asc desc].include?(sort_direction)
-  sort = { sort_name => sort_direction }
+  sort = {
+    (sort_name == 'name' ? canonical_name_order_sql('closed_nets') : sort_name) => sort_direction
+  }
   if sort_name == 'started_at'
-    sort[:name] = 'asc'
+    sort[canonical_name_order_sql('closed_nets')] = 'asc'
   else
     sort[:started_at] = 'asc'
   end
@@ -801,7 +807,7 @@ get '/closed-nets' do
   scope = scope.order(sort)
 
   if params[:name].present?
-    scope = scope.where('name like :name or frequency like :name', { name: "%#{params[:name].gsub(/%/, '\%')}%" })
+    scope = scope.where('closed_nets.name like :name or frequency like :name', { name: "%#{params[:name].gsub(/%/, '\%')}%" })
   end
 
   @closed_nets = scope
@@ -822,7 +828,7 @@ get '/api/closed-nets' do
 
   params[:days] ||= '1'
 
-  scope = Tables::ClosedNet.all
+  scope = Tables::ClosedNet.left_outer_joins(:canonical_net).includes(:canonical_net)
   if params[:days] != 'all'
     start = params[:days].to_i.days.ago
     if start > Time.new(2000, 1, 1, 0, 0)
@@ -833,16 +839,18 @@ get '/api/closed-nets' do
   sort_name, sort_direction = params[:sort].to_s.split(' ', 2)
   sort_name = 'name' unless %w[name frequency band mode started_at].include?(sort_name)
   sort_direction = 'asc' unless %w[asc desc].include?(sort_direction)
-  sort = { sort_name => sort_direction }
+  sort = {
+    (sort_name == 'name' ? canonical_name_order_sql('closed_nets') : sort_name) => sort_direction
+  }
   if sort_name == 'started_at'
-    sort[:name] = 'asc'
+    sort[canonical_name_order_sql('closed_nets')] = 'asc'
   else
     sort[:started_at] = 'asc'
   end
   scope = scope.order(sort)
 
   if params[:name].present?
-    scope = scope.where('name like :name or frequency like :name', { name: "%#{params[:name].gsub(/%/, '\%')}%" })
+    scope = scope.where('closed_nets.name like :name or frequency like :name', { name: "%#{params[:name].gsub(/%/, '\%')}%" })
   end
 
   total_count = scope.count

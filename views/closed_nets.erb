@@ -38,7 +38,7 @@
         <% @closed_nets.each do |closed_net| %>
           <% next if Tables::BlockedNet.blocked?(closed_net.name, names: @blocked_net_names) %>
           <tr>
-            <td><a href="/closed-net/<%= closed_net.id %>"><%== closed_net.name %></a></td>
+            <td><a href="/closed-net/<%= closed_net.id %>"><%== closed_net.canonical_net&.canonical_name || closed_net.name %></a></td>
             <td><%= closed_net.frequency %></td>
             <td><%= format_time(closed_net.started_at) %></td>
           </tr>
