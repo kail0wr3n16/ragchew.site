@@ -335,6 +335,20 @@ RSpec.describe 'canonical nets' do
     expect(last_response.body).to include('Merge Into This Canonical Net')
   end
 
+  it 'renames a canonical net from the admin detail page route' do
+    admin = create_user(call_sign: 'K1ADMIN')
+    admin.update!(admin: true)
+    canonical_net = Tables::CanonicalNet.create!(canonical_name: 'Metro Weather Net')
+
+    patch "/admin/canonical-nets/#{canonical_net.id}",
+          { canonical_name: 'Metro WX Net' },
+          session_env_for(admin)
+
+    expect(last_response.status).to eq(302)
+    expect(last_response.headers['Location']).to eq("http://example.org/admin/canonical-nets?name=#{CGI.escape('Metro WX Net')}")
+    expect(canonical_net.reload.canonical_name).to eq('Metro WX Net')
+  end
+
   it 'shows the canonical admin link on closed net pages for admins' do
     admin = create_user(call_sign: 'K1ADMIN')
     admin.update!(admin: true)

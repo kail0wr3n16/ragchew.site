@@ -11,6 +11,17 @@
   Favorites: <%= @canonical_net.favorite_count %>
 </p>
 
+<h2>Rename</h2>
+
+<form action="/admin/canonical-nets/<%== @canonical_net.id %>" method="post">
+  <input type="hidden" name="_method" value="patch"/>
+  <label>
+    Canonical name:<br/>
+    <input type="text" name="canonical_name" value="<%== make_value_safe_for_html_attribute(@canonical_net.canonical_name) %>" size="40"/>
+  </label>
+  <button>Save Name</button>
+</form>
+
 <h2>Merge Another Canonical Net</h2>
 
 <div id="canonical-merge-search" style="position: relative; max-width: 640px;">
