@@ -17,7 +17,12 @@
   <h2>Suggested Merges</h2>
   <p>These groups look similar by normalized name, band, and frequency. Uncheck anything that does not belong, edit the canonical name if needed, then merge.</p>
   <% @suggested_canonical_net_groups.each do |group| %>
-    <% suggested_name = group.canonical_nets.first&.canonical_name || group.raw_names.first %>
+    <% suggested_name_counts = group.canonical_nets.each_with_object(Hash.new(0)) do |canonical_net, counts| %>
+      <% canonical_net.alias_details.each do |detail| %>
+        <% counts[detail[:name]] += detail[:active_count] + detail[:closed_count] %>
+      <% end %>
+    <% end %>
+    <% suggested_name = suggested_name_counts.max_by { |name, count| [count, -group.raw_names.index(name).to_i] }&.first || group.canonical_nets.first&.canonical_name || group.raw_names.first %>
     <div class="admin-only">
       <form action="/admin/canonical-nets/merge" method="post">
         <p><strong><%= group.frequency %> <%= group.band %></strong></p>
