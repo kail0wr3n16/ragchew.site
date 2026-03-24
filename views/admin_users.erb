@@ -8,18 +8,41 @@
   <% end %>
 </form>
 
-<dl>
-  <dt>Total user count:</dt>
-  <dd><%== @user_count_total %></dd>
-  <dt>User count last 30 days:</dt>
-  <dd><%== @user_count_last_30_days %></dd>
-  <dt>User count last 7 days:</dt>
-  <dd><%== @user_count_last_7_days %></dd>
-  <dt>User count last 24 hours:</dt>
-  <dd><%== @user_count_last_24_hours %></dd>
-  <dt>User count last 1 hour:</dt>
-  <dd><%== @user_count_last_1_hour %></dd>
-</dl>
+<p>Total user count: <%== @user_count_total %></p>
+
+<div class="table-wrapper">
+  <table>
+    <thead>
+      <tr>
+        <th>Period</th>
+        <th>Web</th>
+        <th>Mobile</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>30 days</td>
+        <td><%== @web_user_count_last_30_days %></td>
+        <td><%== @mobile_user_count_last_30_days %></td>
+      </tr>
+      <tr>
+        <td>7 days</td>
+        <td><%== @web_user_count_last_7_days %></td>
+        <td><%== @mobile_user_count_last_7_days %></td>
+      </tr>
+      <tr>
+        <td>24 hours</td>
+        <td><%== @web_user_count_last_24_hours %></td>
+        <td><%== @mobile_user_count_last_24_hours %></td>
+      </tr>
+      <tr>
+        <td>1 hour</td>
+        <td><%== @web_user_count_last_1_hour %></td>
+        <td><%== @mobile_user_count_last_1_hour %></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
 
 <div class="table-wrapper">
   <table>
@@ -27,6 +50,8 @@
       <tr>
         <th><a href="?order=call_sign">Call Sign</a></th>
         <th><a href="?order=first_name,last_name">Name</a></th>
+        <th><a href="?order=last_web_active_at">Last Web Active</a></th>
+        <th><a href="?order=last_mobile_active_at">Last Mobile Active</a></th>
         <th><a href="?order=last_signed_in_at">Last Signed In</a></th>
         <th><a href="?order=created_at">First Signed In</a></th>
         <th>Checked In</th>
@@ -43,6 +68,8 @@
             </a>
           </td>
           <td><%== user.first_name %> <%== user.last_name %></td>
+          <td><%= format_time(user.last_web_active_at) %></td>
+          <td><%= format_time(user.last_mobile_active_at) %></td>
           <td><%= format_time(user.last_signed_in_at) %></td>
           <td><%= format_time(user.created_at) %></td>
           <td>

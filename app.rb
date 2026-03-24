@@ -126,6 +126,7 @@ end
 
 before do
   @user = get_user
+  touch_user_activity!(@user) if @user
   if @user
     headers['X-RagChew-User'] = @user.call_sign
     headers['X-RagChew-Role'] = @user.admin? ? 'admin' : 'user'
@@ -276,10 +277,42 @@ helpers do
     end
   end
 
-  def stat_values_by_week(weeks, name)
-    records = Tables::Stat.where(name:, period: weeks).to_a
+  def stat_values_by_week(weeks, names)
+    names = Array(names)
+    records = Tables::Stat.where(name: names, period: weeks).to_a.index_by do |record|
+      [record.period, record.name]
+    end
     weeks.map do |week|
-      records.detect { |r| r.period == week.beginning_of_week }&.value || 0
+      period = week.beginning_of_week
+      value = nil
+      names.each do |name|
+        record = records[[period, name]]
+        if record
+          value = record.value
+          break
+        end
+      end
+      value || 0
+    end
+  end
+
+  def active_user_count(column_name, since:)
+    Tables::User.where("#{column_name} > ?", since).count
+  end
+
+  def touch_timestamp!(record, column_name, now: Time.now)
+    current_value = record.public_send(column_name)
+    return if current_value && now - current_value < 20.minutes
+
+    record.update!(column_name => now)
+  end
+
+  def touch_user_activity!(user, now: Time.now)
+    case request.env['ragchew.auth_type']
+    when 'bearer'
+      touch_timestamp!(user, :last_mobile_active_at, now:)
+    when 'session'
+      touch_timestamp!(user, :last_web_active_at, now:)
     end
   end
 
@@ -1325,6 +1358,7 @@ end
 
 post '/login' do
   params[:net] = CGI.unescape(params[:net]) if params[:net]
+  now = Time.now
 
   if APPLE_REVIEW_DEMO_ENABLED && params[:call_sign].to_s.strip.upcase == APPLE_REVIEW_DEMO_CALL_SIGN
     raise Qrz::Error, 'wrong password' unless params[:password] == APPLE_REVIEW_DEMO_PASSWORD
@@ -1332,7 +1366,7 @@ post '/login' do
     @user = Tables::User.find_by(call_sign: APPLE_REVIEW_DEMO_CALL_SIGN)
     raise Qrz::Error, 'user not found' unless @user
 
-    @user.update!(last_signed_in_at: Time.now)
+    @user.update!(last_signed_in_at: now, last_web_active_at: now)
     qrz_session = nil
   else
     qrz = Qrz.login(
@@ -1342,7 +1376,8 @@ post '/login' do
     result = qrz.lookup(params[:call_sign])
 
     @user = Tables::User.find_or_initialize_by(call_sign: result[:call_sign])
-    @user.last_signed_in_at = Time.now
+    @user.last_signed_in_at = now
+    @user.last_web_active_at = now
     @user.update!(result.slice(:call_sign, :first_name, :last_name, :image))
     qrz_session = qrz.session
   end
@@ -1386,6 +1421,7 @@ post '/api/auth/login' do
   call_sign = body['call_sign'].to_s.strip
   password = body['password'].to_s
   platform = body['platform'].to_s.strip
+  now = Time.now
 
   if call_sign.empty? || password.empty? || platform.empty?
     status 400
@@ -1399,7 +1435,7 @@ post '/api/auth/login' do
         status 401
         return { error: 'user not found' }.to_json
       end
-      user.update!(last_signed_in_at: Time.now)
+      user.update!(last_signed_in_at: now, last_mobile_active_at: now)
       api_token = Tables::ApiToken.generate_for(user, platform:)
       return { token: api_token.raw_token, user: user }.to_json
     else
@@ -1416,7 +1452,8 @@ post '/api/auth/login' do
   end
 
   user = Tables::User.find_or_initialize_by(call_sign: result[:call_sign])
-  user.last_signed_in_at = Time.now
+  user.last_signed_in_at = now
+  user.last_mobile_active_at = now
   user.update!(result.slice(:call_sign, :first_name, :last_name, :image))
 
   api_token = Tables::ApiToken.generate_for(user, platform:)
@@ -1464,7 +1501,8 @@ def gather_weekly_stats
   weeks = weeks_in_range(time_range).to_a
 
   new_user_values = stat_values_by_week(weeks, 'new_users_per_week')
-  active_user_values = stat_values_by_week(weeks, 'active_users_per_week').zip(new_user_values).map { |active, new| active - new }
+  web_active_user_values = stat_values_by_week(weeks, ['active_web_users_per_week', 'active_users_per_week'])
+  mobile_active_user_values = stat_values_by_week(weeks, 'active_mobile_users_per_week')
   @user_stats_weekly = {
     new_users: {
       x: weeks,
@@ -1472,10 +1510,16 @@ def gather_weekly_stats
       name: 'new',
       type: 'bar'
     },
-    active_users: {
+    web_active_users: {
       x: weeks,
-      y: active_user_values,
-      name: 'existing',
+      y: web_active_user_values,
+      name: 'web active',
+      type: 'bar'
+    },
+    mobile_active_users: {
+      x: weeks,
+      y: mobile_active_user_values,
+      name: 'mobile active',
       type: 'bar'
     }
   }
@@ -1497,7 +1541,7 @@ get '/admin' do
   @ragchew_nets = (active_nets.to_a + closed_nets.to_a).sort_by(&:created_at).reverse
   @new_users = Tables::User.where('created_at >= ?', 7.days.ago)
                            .order(created_at: :desc)
-  @user_count_last_30_days = Tables::User.where('last_signed_in_at > ?', Time.now - (30 * 24 * 60 * 60)).count
+  @user_count_last_30_days = active_user_count('last_web_active_at', since: 30.days.ago)
   @suggested_clubs = Tables::SuggestedClub.order(created_at: :desc)
   @suggested_canonical_net_merge_count = CanonicalNetResolver.suggestion_count
 
@@ -1522,8 +1566,12 @@ get '/admin/users' do
             { first_name: :asc, last_name: :asc }
           when 'created_at'
             { created_at: :desc }
-          when 'last_signed_in_at', nil
+          when 'last_signed_in_at'
             { last_signed_in_at: :desc }
+          when 'last_mobile_active_at'
+            { last_mobile_active_at: :desc }
+          when 'last_web_active_at', nil
+            { last_web_active_at: :desc }
           end
   scope = Tables::User.order(order)
   scope = scope.where('call_sign like ?', '%' + params[:call_sign] + '%') if params[:call_sign]
@@ -1532,10 +1580,14 @@ get '/admin/users' do
   scope = scope.limit(@per_page)
   @users = scope.to_a
   @user_count_total = Tables::User.count
-  @user_count_last_30_days = Tables::User.where('last_signed_in_at > ?', Time.now - (30 * 24 * 60 * 60)).count
-  @user_count_last_7_days = Tables::User.where('last_signed_in_at > ?', Time.now - (7 * 24 * 60 * 60)).count
-  @user_count_last_24_hours = Tables::User.where('last_signed_in_at > ?', Time.now - (24 * 60 * 60)).count
-  @user_count_last_1_hour = Tables::User.where('last_signed_in_at > ?', Time.now - (1 * 60 * 60)).count
+  @web_user_count_last_30_days = active_user_count('last_web_active_at', since: 30.days.ago)
+  @web_user_count_last_7_days = active_user_count('last_web_active_at', since: 7.days.ago)
+  @web_user_count_last_24_hours = active_user_count('last_web_active_at', since: 24.hours.ago)
+  @web_user_count_last_1_hour = active_user_count('last_web_active_at', since: 1.hour.ago)
+  @mobile_user_count_last_30_days = active_user_count('last_mobile_active_at', since: 30.days.ago)
+  @mobile_user_count_last_7_days = active_user_count('last_mobile_active_at', since: 7.days.ago)
+  @mobile_user_count_last_24_hours = active_user_count('last_mobile_active_at', since: 24.hours.ago)
+  @mobile_user_count_last_1_hour = active_user_count('last_mobile_active_at', since: 1.hour.ago)
 
   erb :admin_users
 end
@@ -2598,11 +2650,8 @@ def get_user
     api_token = Tables::ApiToken.find_by_raw_token(token_string)
     if api_token && !api_token.expired?
       user = api_token.user
+      request.env['ragchew.auth_type'] = 'bearer'
       api_token.touch_last_used!
-      now = Time.now
-      if user.last_signed_in_at && now - user.last_signed_in_at > 20 * 60
-        user.update!(last_signed_in_at: now)
-      end
       return user
     end
   end
@@ -2612,11 +2661,7 @@ def get_user
     return
   end
 
-  now = Time.now
-  if user.last_signed_in_at && now - user.last_signed_in_at > 20 * 60 # 20 minutes
-    user.update!(last_signed_in_at: now)
-  end
-
+  request.env['ragchew.auth_type'] = 'session'
   user
 end
 

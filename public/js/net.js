@@ -2495,12 +2495,13 @@ function buildStatCharts() {
   let elm = document.getElementById("user_chart_hourly")
   if (elm) {
     const user_data_hourly = JSON.parse(elm.dataset.data)
-    const active_user_data_hourly = user_data_hourly.active_users
+    const web_active_user_data_hourly = user_data_hourly.web_active_users
     const new_user_data_hourly = user_data_hourly.new_users
+    const mobile_active_user_data_hourly = user_data_hourly.mobile_active_users
     Plotly.newPlot(
       "user_chart_hourly",
-      [active_user_data_hourly, new_user_data_hourly],
-      { title: "active users", barmode: "stack" }
+      [web_active_user_data_hourly, new_user_data_hourly, mobile_active_user_data_hourly],
+      { title: "user activity", barmode: "group" }
     )
   }
 
@@ -2514,12 +2515,13 @@ function buildStatCharts() {
   elm = document.getElementById("user_chart_daily")
   if (elm) {
     const user_data_daily = JSON.parse(elm.dataset.data)
-    const active_user_data_daily = user_data_daily.active_users
+    const web_active_user_data_daily = user_data_daily.web_active_users
     const new_user_data_daily = user_data_daily.new_users
+    const mobile_active_user_data_daily = user_data_daily.mobile_active_users
     Plotly.newPlot(
       "user_chart_daily",
-      [active_user_data_daily, new_user_data_daily],
-      { title: "active users", barmode: "stack" }
+      [web_active_user_data_daily, new_user_data_daily, mobile_active_user_data_daily],
+      { title: "user activity", barmode: "group" }
     )
   }
 
@@ -2533,12 +2535,13 @@ function buildStatCharts() {
   elm = document.getElementById("user_chart_weekly")
   if (elm) {
     const user_data_weekly = JSON.parse(elm.dataset.data)
-    const active_user_data_weekly = user_data_weekly.active_users
+    const web_active_user_data_weekly = user_data_weekly.web_active_users
     const new_user_data_weekly = user_data_weekly.new_users
+    const mobile_active_user_data_weekly = user_data_weekly.mobile_active_users
     Plotly.newPlot(
       "user_chart_weekly",
-      [active_user_data_weekly, new_user_data_weekly],
-      { title: "active users", barmode: "stack" }
+      [web_active_user_data_weekly, new_user_data_weekly, mobile_active_user_data_weekly],
+      { title: "user activity", barmode: "group" }
     )
   }
 

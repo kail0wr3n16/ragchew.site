@@ -37,6 +37,8 @@ RSpec.describe 'auth login' do
     expect(json_response.dig('user', 'call_sign')).to eq(APPLE_REVIEW_DEMO_CALL_SIGN)
     expect(user.reload.api_tokens.order(:created_at).last.platform).to eq('ios')
     expect(user.reload.last_signed_in_at).not_to be_nil
+    expect(user.reload.last_web_active_at).to be_nil
+    expect(user.reload.last_mobile_active_at).not_to be_nil
   end
 
   it 'requires platform for api login' do
@@ -77,5 +79,7 @@ RSpec.describe 'auth login' do
     expect(last_response.headers['Location']).to eq('http://example.org/')
     expect(rack_mock_session.cookie_jar['rack.session']).not_to be_nil
     expect(user.reload.last_signed_in_at).not_to be_nil
+    expect(user.reload.last_web_active_at).not_to be_nil
+    expect(user.reload.last_mobile_active_at).to be_nil
   end
 end

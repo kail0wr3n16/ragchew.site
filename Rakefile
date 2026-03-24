@@ -155,8 +155,12 @@ def build_stats(range, period_name, period)
   new_users = Tables::User.where(created_at: range).count
   Tables::Stat.find_or_initialize_by(name: "new_users_per_#{period_name}", period:).update!(value: new_users)
 
-  active_users = Tables::User.where(last_signed_in_at: range).count
-  Tables::Stat.find_or_initialize_by(name: "active_users_per_#{period_name}", period:).update!(value: active_users)
+  web_active_users = Tables::User.where(last_web_active_at: range).count
+  Tables::Stat.find_or_initialize_by(name: "active_web_users_per_#{period_name}", period:).update!(value: web_active_users)
+  Tables::Stat.find_or_initialize_by(name: "active_users_per_#{period_name}", period:).update!(value: web_active_users)
+
+  mobile_active_users = Tables::User.where(last_mobile_active_at: range).count
+  Tables::Stat.find_or_initialize_by(name: "active_mobile_users_per_#{period_name}", period:).update!(value: mobile_active_users)
 end
 
 desc 'Update stats graphs'
